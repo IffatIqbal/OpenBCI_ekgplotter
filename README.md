@@ -1,2 +1,2 @@
 # OpenBCI_ekgplotter
-ekg plotter for open bci connects to pins on cyton
+ekg plotter for open bci connects electrons to pins on cyton
