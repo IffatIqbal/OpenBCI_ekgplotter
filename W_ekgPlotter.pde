@@ -1,137 +1,120 @@
-class W_ekgPlotter extends Widget {
-  
-  ControlP5 localCP5;
-  Button startButton;
-  SerialPort serialPort;
-  String serialPortName = "/dev/ttyUSB0"; // Adjust this according to your setup
-  int serialBaudRate = 9600;
+import controlP5.ControlP5;
+import processing.core.PApplet;
+import brainflow.BoardShim;
+import brainflow.BoardIds;
+import brainflow.BrainFlowInputParams;
+import java.util.ArrayList;
+import java.util.List;
 
-  List<Float> hrData = new ArrayList<>();
-  List<Float> hrvData = new ArrayList<>();
-  List<Float> sensorData = new ArrayList<>();
-  List<Float> timeData = new ArrayList<>();
-  long startTime;
+public class W_ekgPlotter extends Widget {
+    List<Float> sensorData = new ArrayList<>();
+    List<Float> timeData = new ArrayList<>();
+    long startTime;
+    int cBack;
+    ControlP5 cp5;
+    BoardShim boardShim;
 
-  W_ekgPlotter(PApplet _parent){
-    super(_parent); //calls the parent CONSTRUCTOR method of Widget (DON'T REMOVE)
-
-    // Instantiate local cp5 for this box
-    localCP5 = new ControlP5(ourApplet);
-    localCP5.setGraphics(ourApplet, 0,0);
-    localCP5.setAutoDraw(false);
-
-    // Create the start button to initialize serial communication
-    createStartButton();
-  }
-
-  public void update(){
-    super.update(); //calls the parent update() method of Widget (DON'T REMOVE)
-    readSerialData();
-  }
-
-  public void draw(){
-    super.draw(); //calls the parent draw() method of Widget (DON'T REMOVE)
-
-    // Draw all cp5 objects in the local instance
-    localCP5.draw();
-    
-    // Plot the data
-    plotData();
-  }
-
-  public void screenResized(){
-    super.screenResized(); //calls the parent screenResized() method of Widget (DON'T REMOVE)
-
-    // Set the position of our Cp5 object after the screen is resized
-    localCP5.setGraphics(ourApplet, 0, 0);
-    startButton.setPosition(x + w/2 - startButton.getWidth()/2, y + h/2 - startButton.getHeight()/2);
-  }
-
-  public void mousePressed(){
-    super.mousePressed(); //calls the parent mousePressed() method of Widget (DON'T REMOVE)
-  }
-
-  public void mouseReleased(){
-    super.mouseReleased(); //calls the parent mouseReleased() method of Widget (DON'T REMOVE)
-  }
-
-  private void createStartButton() {
-    startButton = createButton(localCP5, "startButton", "Start EKG Plotter", x + w/2, y + h/2, 200, navHeight, p4, 14, colorNotPressed, OPENBCI_DARKBLUE);
-    startButton.setBorderColor(OBJECT_BORDER_GREY);
-    startButton.onRelease(new CallbackListener() {
-      public void controlEvent(CallbackEvent theEvent) {
-        if (!topNav.configSelector.isVisible && !topNav.layoutSelector.isVisible) {
-          initializeSerial();
-        }
-      }
-    });
-    startButton.setDescription("Start the EKG plotter by initializing serial communication.");
-  }
-
-  private void initializeSerial() {
-    try {
-      serialPort = new SerialPort(serialPortName, serialBaudRate);
-      serialPort.openPort();
-      serialPort.setParams(serialBaudRate, 8, 1, 0);
-      startTime = System.currentTimeMillis();
-    } catch (SerialPortException e) {
-      e.printStackTrace();
+    W_ekgPlotter(PApplet _parent) {
+        super(_parent);
+        cp5 = new ControlP5(ourApplet);
+        cp5.setAutoDraw(false);
+        startTime = System.currentTimeMillis();
+        onColorChange();
+        initializeBrainFlow();
+        ourApplet.registerMethod("dispose", this);
     }
-  }
 
-  private void readSerialData() {
-    if (serialPort != null && serialPort.isOpened()) {
-      try {
-        String data = serialPort.readString();
-        if (data != null) {
-          String[] values = data.split(",");
-          if (values.length == 3) {
-            float hr = Float.parseFloat(values[0]);
-            float hrv = Float.parseFloat(values[1]);
-            float sensorValue = Float.parseFloat(values[2]);
-            float currentTime = (System.currentTimeMillis() - startTime) / 1000.0f;
-            timeData.add(currentTime);
-            hrData.add(hr);
-            hrvData.add(hrv);
+    private void onColorChange() {
+        cBack = ourApplet.color(255);
+    }
+
+    public void update() {
+        super.update();
+        updateEKGData();
+    }
+
+    public void draw() {
+        super.draw();
+        ourApplet.background(cBack);
+        plotData();
+        cp5.draw();
+    }
+
+    public void screenResized() {
+        super.screenResized();
+    }
+
+    private void plotData() {
+        if (timeData.isEmpty() || sensorData.isEmpty()) {
+            println("No data to plot");
+            return;
+        }
+
+        ourApplet.stroke(0);
+        ourApplet.noFill();
+        ourApplet.beginShape();
+        for (int i = 0; i < timeData.size(); i++) {
+            float xPos = PApplet.map(timeData.get(i), timeData.get(0), timeData.get(timeData.size() - 1), x + 30, x + w - 30);
+            float yPos = PApplet.map(sensorData.get(i), 0, 1023, y + h - 30, y + 30);
+            ourApplet.vertex(xPos, yPos);
+        }
+        ourApplet.endShape();
+    }
+
+private void initializeBrainFlow() {
+    try {
+        BrainFlowInputParams params = new BrainFlowInputParams();
+        params.serial_port = "COM4"; // Change port name as necessary
+        boardShim = new BoardShim(BoardIds.CYTON_BOARD, params);
+        boardShim.prepare_session();
+        boardShim.start_stream();
+        println("BrainFlow session started");
+    } catch (BrainFlowError e) {
+        println("Error initializing BrainFlow: " + e.getMessage());
+        e.printStackTrace();
+    } catch (Exception e) {
+        println("An unexpected error occurred during initialization:");
+        e.printStackTrace();
+    }
+}
+
+
+private void updateEKGData() {
+    try {
+        double[][] data = boardShim.get_current_board_data(1);
+        if (data != null && data.length > 0) {
+            float time = (System.currentTimeMillis() - startTime) / 1000.0f;
+            float sensorValue = (float) data[7][0]; // Assuming channel 8 has EKG data
+            timeData.add(time);
             sensorData.add(sensorValue);
 
-            // Keep only the latest 100 points for better performance
             if (timeData.size() > 100) {
-              timeData.remove(0);
-              hrData.remove(0);
-              hrvData.remove(0);
-              sensorData.remove(0);
+                timeData.remove(0);
+                sensorData.remove(0);
             }
-          }
+
+            println("Received data: Time=" + time + ", Sensor Value=" + sensorValue);
+        } else {
+            println("No data received from board");
         }
-      } catch (SerialPortException e) {
+    } catch (Exception e) {
+        println("Error while retrieving data:");
         e.printStackTrace();
-      }
     }
-  }
-
-  private void plotData() {
-    ourApplet.stroke(255);
-    ourApplet.noFill();
-    ourApplet.beginShape();
-    for (int i = 0; i < timeData.size(); i++) {
-      float xPos = PApplet.map(timeData.get(i), timeData.get(0), timeData.get(timeData.size()-1), x, x + w);
-      float yPos = PApplet.map(sensorData.get(i), 0, 100, y + h, y);
-      ourApplet.vertex(xPos, yPos);
-    }
-    ourApplet.endShape();
-  }
-};
-
-//These functions need to be global , functions are activated when an item from the corresponding dropdown is selected
-void Dropdown1(int n){
-  println("Item " + (n+1) + " selected from Dropdown 1");
 }
 
-void Dropdown2(int n){
-  println("Item " + (n+1) + " selected from Dropdown 2");
-}
 
-void Dropdown3(int n){
-  println("Item " + (n+1) + " selected from Dropdown 3");
+
+
+    public void dispose() {
+        try {
+            if (boardShim != null) {
+                boardShim.stop_stream();
+                boardShim.release_session();
+                println("BrainFlow session stopped");
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
 }
