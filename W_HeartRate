@@ -1,0 +1,102 @@
+import controlP5.*;
+import processing.core.PApplet;
+
+class W_HeartRate extends Widget {
+
+    ControlP5 localCP5;
+    double hr = 72, hrv = 0;
+    long instance1 = 0, timer;
+    int value = 0, count = 0;
+    boolean flag = false;
+
+    W_HeartRate(PApplet _parent) {
+        super(_parent);
+
+        localCP5 = new ControlP5(ourApplet);
+        localCP5.setGraphics(ourApplet, 0, 0);
+        localCP5.setAutoDraw(false);
+
+        // Initialize timer
+        timer = millis();
+    }
+
+    public void update() {
+        super.update();
+
+        // Fetch data from channel 6
+        float[] ecgData = getLiveECGData(6); // Channel 6 data
+
+        // Process data to update heart rate and HRV
+        processECGData(ecgData);
+    }
+
+    private float[] getLiveECGData(int channelIndex) {
+        // Get the live ECG data for the specified channel
+        // Replace this with actual logic to fetch data from OpenBCI board
+        int nPoints = 100; // Number of data points to fetch
+        float[] data = new float[nPoints];
+        for (int i = 0; i < nPoints; i++) {
+            data[i] = dataProcessingFilteredBuffer[channelIndex][i];
+        }
+        return data;
+    }
+
+    private void processECGData(float[] ecgData) {
+        int threshold = 1000;
+        int timerValue = 5000; // 10 seconds in milliseconds
+
+        for (int i = 0; i < ecgData.length; i++) {
+            value = (int) map(ecgData[i], 250, 400, 0, 100); // Flatten the ECG values
+
+            if (value > threshold && !flag) {
+                count++;
+                flag = true;
+                long now = millis();
+                long interval = now - instance1; // RR interval in milliseconds
+                instance1 = now;
+
+                if (interval > 0) {
+                    hrv = hr / 60.0 - interval / 1000.0;
+                }
+            } else if (value < threshold) {
+                flag = false;
+            }
+
+            if ((millis() - timer) > timerValue) {
+                hr = count * 12;
+                timer = millis();
+                count = 0;
+            }
+        }
+    }
+
+    public void draw() {
+        super.draw();
+        drawHeartRate();
+        localCP5.draw();
+    }
+
+    private void drawHeartRate() {
+        pushStyle();
+        fill(50);
+        textFont(createFont("Arial", 20));
+        fill(255, 0, 0); // Red color for heart rate text
+        textAlign(LEFT, CENTER);
+        text("Heart Rate: " + (int) hr + " BPM", x + 20, y + 20);
+        text("HRV: " + hrv, x + 20, y + 50);
+        popStyle();
+    }
+
+    public void screenResized() {
+        super.screenResized();
+        localCP5.setGraphics(ourApplet, 0, 0);
+    }
+
+    public void mousePressed() {
+        super.mousePressed();
+    }
+
+    public void mouseReleased() {
+        super.mouseReleased();
+    }
+}
